@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Foundation\Auth\EmailVerificationRequest;
 
 /*
 |--------------------------------------------------------------------------
@@ -22,6 +23,8 @@ use Illuminate\Support\Facades\Route;
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout']);
 Route::post('/register', [AuthController::class, 'register']);
+
+Route::post('/verify-email', [AuthController::class, 'resendVerifyEmail']);
 
 Route::get('/users', [UserController::class, 'index'])->middleware('isUser');
 Route::delete('/user/{id}', [UserController::class, 'delete'])->middleware('isAdmin');

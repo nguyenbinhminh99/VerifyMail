@@ -59,11 +59,16 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         $this->attributes['password'] = bcrypt($value);
     }
 
-        /**
-         * Get the identifier that will be stored in the subject claim of the JWT.
-         *
-         * @return mixed
-         */
+    public function verifyEmailToken()
+    {
+      return $this->hasOne(VerifyEmailToken::class);
+    }
+    
+    /**
+     * Get the identifier that will be stored in the subject claim of the JWT.
+     *
+     * @return mixed
+     */
     public function getJWTIdentifier() {
         return $this->getKey();
     }

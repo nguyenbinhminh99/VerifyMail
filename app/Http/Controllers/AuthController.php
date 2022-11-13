@@ -5,6 +5,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 use Illuminate\Support\Facades\Validator;
+use App\Models\VerifyEmailToken;
+use App\Services\Mail\SendVerifyEmail;
+use App\Services\Mail\VerifyEmailAction;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
+use App\Jobs\SendQueueVerifyEmail;
 
 class AuthController extends Controller
 {
@@ -13,8 +19,10 @@ class AuthController extends Controller
      *
      * @return void
      */
-    public function __construct() {
-        $this->middleware('auth:api', ['except' => ['login', 'register']]);
+    public function __construct(SendVerifyEmail $sendVerifyEmail, VerifyEmailAction $verifyEmailAction) {
+        $this->middleware('auth:api', ['except' => ['login', 'register', 'verifyEmail', 'resendVerifyEmail']]);
+        $this->sendVerifyEmail = $sendVerifyEmail;
+        $this->verifyEmailAction = $verifyEmailAction;
     }
 
     /**
@@ -36,6 +44,13 @@ class AuthController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
+        if (!User::where('email', $credentials['email'])->where('email_verified_at','!=', null)->exists()) {
+            return response()->json([
+              'status' => false,
+              'message' => 'Email not verified.',
+              'data' => null,
+            ], Response::HTTP_UNAUTHORIZED);
+        }
         return $this->createNewToken($token);
     }
 
@@ -59,18 +74,68 @@ class AuthController extends Controller
             return response()->json($validator->errors()->toJson(), 400);
         }
 
-        $user = User::create(array_merge(
-            $validator->validated(),
-            ['password' => bcrypt($request->password)]
-        ));
+        $user = User::create($validator->validated());
+        
+        dispatch(new SendQueueVerifyEmail([
+            'full_name' => $user->full_name,
+            'email' => $user->email,
+            'token' => $this->genVerifyEmailToken($user->id)
+        ]));
 
         return response()->json([
-            'message' => 'User successfully registered',
+            'message' => 'User successfully registered, please check your email!',
             'user' => $user
         ], 201);
     }
 
 
+    public function verifyEmail(Request $request)
+    {
+      $token = $request->query('token');
+      $verifyEmail = $this->verifyEmailAction->handle($token);
+      return $verifyEmail['isValid'] ? 'Verify success' : 'Verify fail'; // redirect to frontend
+    }
+  
+    private function genVerifyEmailToken(int $user_id)
+    {
+      $token = Str::random(60);
+      VerifyEmailToken::create([
+        'user_id' => $user_id,
+        'token' => $token,
+      ]);
+      return $token;
+    }
+  
+    public function resendVerifyEmail(Request $request)
+    {
+      $user = User::query()->where('email', $request->email)->first();
+      if (is_null($user)) {
+        return response()->json([
+          'status' => false,
+          'message' => 'Email does not exist',
+          'data' => null,
+        ], Response::HTTP_NOT_ACCEPTABLE);
+      }
+      if(!is_null($user->email_verified_at)) {
+        return response()->json([
+          'status' => false,
+          'message' => 'Email verified',
+          'data' => null,
+        ], Response::HTTP_NOT_ACCEPTABLE);
+      };
+      VerifyEmailToken::query()->where('user_id', $user->id)->delete();
+      $this->sendVerifyMail->handle([
+        'full_name' => $user->full_name,
+        'email' => $user->email,
+        'token' => $this->genVerifyEmailToken($user->id)
+      ]);
+      return response()->json([
+        'status' => true,
+        'message' => 'Sent verify email',
+        'data' => null,
+      ]);
+    }
+  
     /**
      * Log the user out (Invalidate the token).
      *
